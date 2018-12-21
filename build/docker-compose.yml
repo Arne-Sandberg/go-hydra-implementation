@@ -1,0 +1,69 @@
+version: '3'
+
+services:
+  go-hydra-database:
+    image: mysql:8.0
+    container_name: go-hydra-database
+    restart: unless-stopped
+    ports:
+      - 3307:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=admin
+      - MYSQL_DATABASE=go_hydra_implementation
+
+  go-hydra-server:
+    build: .
+    image: go-hydra-server:0.0.1
+    container_name: go-hydra-server
+    restart: unless-stopped
+    ports:
+      - 5000:5000
+    links:
+      - go-hydra-database:go-hydra-database
+    volumes:
+      - ../src:/go/src/github.com/jonaslimads/go-hydra-implementation
+    environment:
+      - SYSTEM_SECRET=please_CHANGE_this
+      - DATABASE_URL=mysql://root:admin@tcp(go-hydra-database)/go_hydra_implementation?parseTime=true
+      - HYDRA_PUBLIC_URL=http://127.0.0.1:4444
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - HYDRA_CLIENT_ID=go-hydra-implementation
+      - HYDRA_SECRET=secret
+
+  hydra-migration:
+    container_name: hydra-migration
+    image: oryd/hydra:v1.0.0-rc.3_oryOS.9
+    depends_on:
+      - go-hydra-database
+    environment:
+      # - LOG_LEVEL=debug
+      - DATABASE_URL=mysql://root:admin@tcp(go-hydra-database)/go_hydra_implementation?parseTime=true
+    command:
+      migrate sql -e
+    restart: on-failure
+
+  hydra:
+    image: oryd/hydra:v1.0.0-rc.3_oryOS.9
+    container_name: hydra
+    restart: unless-stopped
+    links:
+      - go-hydra-database
+    depends_on:
+      - hydra-migration
+    ports:
+      - 4444:4444 # Public port
+      - 4445:4445 # Admin port
+    command:
+      serve all --dangerous-force-http
+    environment:
+      # - LOG_LEVEL=debug
+      - OAUTH2_ISSUER_URL=http://127.0.0.1:4444
+      - OAUTH2_CONSENT_URL=http://127.0.0.1:5000/consent
+      - OAUTH2_LOGIN_URL=http://127.0.0.1:5000/login
+      # - OAUTH2_ERROR_URL=http://127.0.0.1:5000/error
+      - DATABASE_URL=mysql://root:admin@tcp(go-hydra-database)/go_hydra_implementation?parseTime=true
+      - SYSTEM_SECRET=please_CHANGE_this
+      - OAUTH2_SHARE_ERROR_DEBUG=1
+      - OIDC_SUBJECT_TYPES_SUPPORTED=public,pairwise
+      - OIDC_SUBJECT_TYPE_PAIRWISE_SALT=please_CHANGE_this
+#     - OAUTH2_ACCESS_TOKEN_STRATEGY=jwt
